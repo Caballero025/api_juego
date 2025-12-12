@@ -1,4 +1,4 @@
-# main.py - VERSIÓN PARA KUBERNETES CON API INTERNA
+# main.py - VERSIÓN CORREGIDA Y FUNCIONAL
 from fastapi import FastAPI, APIRouter
 from fastapi.middleware.cors import CORSMiddleware
 import psycopg2
@@ -7,8 +7,20 @@ from typing import List
 import os
 import uvicorn
 
-# Crear router con prefijo /api
-router = APIRouter(prefix="/api")
+# ========== CREAR APP PRIMERO ==========
+app = FastAPI()
+
+# Configuración CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Temporalmente todos para pruebas
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# ========== CREAR ROUTER SIN PREFIJO ==========
+router = APIRouter()  # ← ¡SIN PREFIJO AQUÍ!
 
 class Usuario(BaseModel):
     nombre: str
@@ -30,15 +42,15 @@ def get_conn():
         password=os.getenv("DB_PASSWORD", "12345678")
     )
 
-# ========== ENDPOINTS CON PREFIJO /api ==========
-
-@router.get("/")
-def root():
-    return {"message": "API del juego funcionando"}
+# ========== ENDPOINTS EN ROUTER ==========
 
 @router.get("/health")
 def health_check():
     return {"status": "healthy"}
+
+@router.get("/")
+def api_root():
+    return {"message": "API del juego funcionando"}
 
 @router.post("/guardar_usuario")
 def guardar_usuario(data: Usuario):
@@ -129,36 +141,22 @@ def actualizar_score(data: ScoreUpdate):
     conn.close()
     return {"status": "ok"}
 
-# ========== CREAR APLICACIÓN ==========
-app = FastAPI()
+# ========== INCLUIR ROUTER CON PREFIJO /api ==========
+app.include_router(router, prefix="/api")  # ← SOLO UN PREFIJO AQUÍ
 
-# Configuración CORS SEGURA (solo tu dominio)
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[
-        "https://caballero026.me",  # Tu dominio principal
-        "http://localhost:8000",    # Desarrollo local
-        "http://localhost",         # Desarrollo
-        "https://localhost",        # Desarrollo con HTTPS
-        "http://127.0.0.1:8000",   # Desarrollo alternativo
-        "*"                         # Temporal para pruebas, QUITAR en producción
-    ],
-    allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allow_headers=["*"],
-)
-
-# Incluir router con prefijo /api
-app.include_router(router)
-
-# También mantener endpoints sin prefijo para compatibilidad (opcional)
+# ========== ENDPOINTS EN RAÍZ (OPCIONAL) ==========
 @app.get("/")
-def root_no_prefijo():
-    return {"message": "API del juego (sin prefijo) - Usa /api/..."}
+def root():
+    return {"message": "API del juego - Usa /api para endpoints"}
 
 @app.get("/health")
-def health_no_prefijo():
+def health_root():
     return {"status": "healthy"}
+
+# Opcional: Redirigir endpoints antiguos
+@app.post("/guardar_usuario")
+def guardar_usuario_root(data: Usuario):
+    return guardar_usuario(data)
 
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 8000))
