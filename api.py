@@ -2,6 +2,8 @@ from fastapi import FastAPI
 import psycopg2
 from pydantic import BaseModel
 from typing import List
+import os  # <--- agrega esto
+
 app = FastAPI()
 
 class Usuario(BaseModel):
