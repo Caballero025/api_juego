@@ -1,22 +1,14 @@
-# main.py - VERSIÓN CORREGIDA
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware  # <--- IMPORTANTE
+# main.py - VERSIÓN PARA KUBERNETES CON API INTERNA
+from fastapi import FastAPI, APIRouter
+from fastapi.middleware.cors import CORSMiddleware
 import psycopg2
 from pydantic import BaseModel
 from typing import List
 import os
-import uvicorn  # <--- Para poder ejecutar directamente
+import uvicorn
 
-app = FastAPI()
-
-# Configuración CORS para Godot HTML5
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # En producción, especifica tus dominios
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# Crear router con prefijo /api
+router = APIRouter(prefix="/api")
 
 class Usuario(BaseModel):
     nombre: str
@@ -38,16 +30,17 @@ def get_conn():
         password=os.getenv("DB_PASSWORD", "12345678")
     )
 
-@app.get("/")
+# ========== ENDPOINTS CON PREFIJO /api ==========
+
+@router.get("/")
 def root():
     return {"message": "API del juego funcionando"}
 
-@app.get("/health")
+@router.get("/health")
 def health_check():
     return {"status": "healthy"}
 
-# ... el resto de tus endpoints se mantienen igual ...
-@app.post("/guardar_usuario")
+@router.post("/guardar_usuario")
 def guardar_usuario(data: Usuario):
     print("Recibido:", data)
     conn = get_conn()
@@ -58,17 +51,17 @@ def guardar_usuario(data: Usuario):
     conn.close()
     return {"status": "ok", "message": "Usuario guardado correctamente"}
 
-@app.get("/usuarios", response_model=List[UsuarioOut])
+@router.get("/usuarios", response_model=List[UsuarioOut])
 def obtener_usuarios():
     conn = get_conn()
     cursor = conn.cursor()
-    cursor.execute("SELECT nombre FROM usuario ORDER BY id DESC")  # último primero
+    cursor.execute("SELECT nombre FROM usuario ORDER BY id DESC")
     filas = cursor.fetchall()
     cursor.close()
     conn.close()
-
     return [{"nombre": fila[0]} for fila in filas]
-@app.post("/eliminar_usuario")
+
+@router.post("/eliminar_usuario")
 def eliminar_usuario(data: Usuario):
     conn = get_conn()
     cur = conn.cursor()
@@ -78,8 +71,7 @@ def eliminar_usuario(data: Usuario):
     conn.close()
     return {"status": "ok", "message": "Usuario eliminado"}
 
-
-@app.post("/login_usuario")
+@router.post("/login_usuario")
 def login_usuario(data: Usuario):
     conn = get_conn()
     cur = conn.cursor()
@@ -93,8 +85,7 @@ def login_usuario(data: Usuario):
     conn.close()
     return {"status": "ok"}
 
-# Hacer ping para mantener en línea
-@app.post("/ping_usuario")
+@router.post("/ping_usuario")
 def ping_usuario(data: Usuario):
     conn = get_conn()
     cur = conn.cursor()
@@ -104,19 +95,18 @@ def ping_usuario(data: Usuario):
     conn.close()
     return {"status": "ok"}
 
-@app.get("/usuarios_online", response_model=List[UsuarioOut])
+@router.get("/usuarios_online", response_model=List[UsuarioOut])
 def obtener_usuarios_online():
     conn = get_conn()
     cur = conn.cursor()
     cur.execute("SELECT nombre, score FROM usuarios_online WHERE last_seen > NOW() - INTERVAL '5 seconds'")
     filas = cur.fetchall()
-    print("Filas obtenidas:", filas)  # <--- esto imprimirá en la consola del servidor
+    print("Filas obtenidas:", filas)
     cur.close()
     conn.close()
     return [{"nombre": f[0], "score": f[1]} for f in filas]
 
-# Salir del juego
-@app.post("/logout_usuario")
+@router.post("/logout_usuario")
 def logout_usuario(data: Usuario):
     conn = get_conn()
     cur = conn.cursor()
@@ -126,8 +116,7 @@ def logout_usuario(data: Usuario):
     conn.close()
     return {"status": "ok"}
 
-
-@app.post("/actualizar_score")
+@router.post("/actualizar_score")
 def actualizar_score(data: ScoreUpdate):
     conn = get_conn()
     cur = conn.cursor()
@@ -140,10 +129,37 @@ def actualizar_score(data: ScoreUpdate):
     conn.close()
     return {"status": "ok"}
 
+# ========== CREAR APLICACIÓN ==========
+app = FastAPI()
 
-# ... todos tus otros endpoints ...
+# Configuración CORS SEGURA (solo tu dominio)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "https://caballero026.me",  # Tu dominio principal
+        "http://localhost:8000",    # Desarrollo local
+        "http://localhost",         # Desarrollo
+        "https://localhost",        # Desarrollo con HTTPS
+        "http://127.0.0.1:8000",   # Desarrollo alternativo
+        "*"                         # Temporal para pruebas, QUITAR en producción
+    ],
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["*"],
+)
+
+# Incluir router con prefijo /api
+app.include_router(router)
+
+# También mantener endpoints sin prefijo para compatibilidad (opcional)
+@app.get("/")
+def root_no_prefijo():
+    return {"message": "API del juego (sin prefijo) - Usa /api/..."}
+
+@app.get("/health")
+def health_no_prefijo():
+    return {"status": "healthy"}
 
 if __name__ == "__main__":
-    # ESCUCHAR EN 0.0.0.0 para Kubernetes
     port = int(os.getenv("PORT", 8000))
     uvicorn.run(app, host="0.0.0.0", port=port)
